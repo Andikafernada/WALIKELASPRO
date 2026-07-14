@@ -137,26 +137,10 @@ export default function App() {
 
   if (authView === 'landing') {
     return (
-      <div>
-        <LandingPage />
-        {/* Auth buttons overlay */}
-        <div className="fixed top-4 right-4 z-50 flex items-center gap-3">
-          <button
-            onClick={() => setAuthView('login')}
-            className="px-4 py-2 bg-slate-800/80 hover:bg-slate-700 text-white font-semibold rounded-xl backdrop-blur-sm transition flex items-center gap-2"
-          >
-            <LogIn className="w-4 h-4" />
-            Masuk
-          </button>
-          <button
-            onClick={() => setAuthView('register')}
-            className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-white font-semibold rounded-xl transition flex items-center gap-2"
-          >
-            <UserPlus className="w-4 h-4" />
-            Daftar
-          </button>
-        </div>
-      </div>
+      <LandingPage
+        onLogin={() => setAuthView('login')}
+        onRegister={() => setAuthView('register')}
+      />
     );
   }
 

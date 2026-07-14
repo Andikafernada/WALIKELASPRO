@@ -6,7 +6,7 @@ import {
   Heart, Coffee, Book, Award
 } from 'lucide-react';
 
-export default function LandingPage() {
+export default function LandingPage({ onLogin, onRegister }: { onLogin?: () => void; onRegister?: () => void }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeFeature, setActiveFeature] = useState(0);
 
@@ -112,10 +112,10 @@ export default function LandingPage() {
             </div>
 
             <div className="hidden md:flex items-center gap-4">
-              <a href="/login" className="text-slate-300 hover:text-white transition">Masuk</a>
-              <a href="/register" className="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-white font-semibold rounded-xl transition">
+              <button onClick={onLogin} className="text-slate-300 hover:text-white transition">Masuk</button>
+              <button onClick={onRegister} className="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-white font-semibold rounded-xl transition">
                 Daftar Gratis
-              </a>
+              </button>
             </div>
 
             <button
@@ -135,10 +135,10 @@ export default function LandingPage() {
               <a href="#cara-kerja" className="block text-slate-300 hover:text-white">Cara Kerja</a>
               <a href="#testimoni" className="block text-slate-300 hover:text-white">Testimoni</a>
               <a href="#harga" className="block text-slate-300 hover:text-white">Harga</a>
-              <a href="/login" className="block text-slate-300 hover:text-white">Masuk</a>
-              <a href="/register" className="block px-5 py-2 bg-emerald-500 text-white font-semibold rounded-xl text-center">
+              <button onClick={() => { onLogin?.(); setMobileMenuOpen(false); }} className="block text-slate-300 hover:text-white">Masuk</button>
+              <button onClick={() => { onRegister?.(); setMobileMenuOpen(false); }} className="block px-5 py-2 bg-emerald-500 text-white font-semibold rounded-xl text-center">
                 Daftar Gratis
-              </a>
+              </button>
             </div>
           </div>
         )}
@@ -357,9 +357,9 @@ export default function LandingPage() {
                 ))}
               </ul>
 
-              <a href="/register" className="block text-center py-3 bg-slate-700 hover:bg-slate-600 text-white font-semibold rounded-xl transition">
+              <button onClick={onRegister} className="block text-center py-3 bg-slate-700 hover:bg-slate-600 text-white font-semibold rounded-xl transition">
                 Mulai Gratis
-              </a>
+              </button>
             </div>
 
             {/* Premium Plan */}
@@ -392,9 +392,9 @@ export default function LandingPage() {
                 ))}
               </ul>
 
-              <a href="/register?plan=premium" className="block text-center py-3 bg-emerald-500 hover:bg-emerald-400 text-white font-semibold rounded-xl transition">
+              <button onClick={onRegister} className="block text-center py-3 bg-emerald-500 hover:bg-emerald-400 text-white font-semibold rounded-xl transition">
                 Berlangganan Premium
-              </a>
+              </button>
             </div>
           </div>
         </div>
@@ -434,10 +434,10 @@ export default function LandingPage() {
           <p className="text-slate-400 mb-8">
             Bergabung dengan ratusan wali kelas yang sudah menggunakan WALIKELASPRO
           </p>
-          <a href="/register" className="inline-flex items-center gap-2 px-8 py-4 bg-emerald-500 hover:bg-emerald-400 text-white font-bold rounded-xl text-lg transition shadow-lg shadow-emerald-500/25">
+          <button onClick={onRegister} className="inline-flex items-center gap-2 px-8 py-4 bg-emerald-500 hover:bg-emerald-400 text-white font-bold rounded-xl text-lg transition shadow-lg shadow-emerald-500/25">
             Daftar Gratis Sekarang
             <ArrowRight className="w-5 h-5" />
-          </a>
+          </button>
         </div>
       </section>
 
