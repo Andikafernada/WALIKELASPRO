@@ -25,28 +25,23 @@ export default function App() {
   // Extra routing state passed to views
   const [extraState, setExtraState] = useState<any>(null);
 
+  // Check localStorage for saved user on mount (NO auto-login from API)
   useEffect(() => {
-    fetchUserProfile();
-  }, []);
-
-  const fetchUserProfile = async () => {
-    try {
-      setLoading(true);
-      const res = await fetch('/api/auth/me');
-      if (res.ok) {
-        const data = await res.json();
-        setCurrentUser(data);
+    const savedUser = localStorage.getItem('walaspro_user');
+    if (savedUser) {
+      try {
+        const user = JSON.parse(savedUser);
+        setCurrentUser(user);
         setAuthView('app');
-      } else {
+      } catch (e) {
+        localStorage.removeItem('walaspro_user');
         setAuthView('landing');
       }
-    } catch (err) {
-      console.error('Error loading user profile:', err);
+    } else {
       setAuthView('landing');
-    } finally {
-      setLoading(false);
     }
-  };
+    setLoading(false);
+  }, []);
 
   // Check localStorage for saved user on mount
   useEffect(() => {
