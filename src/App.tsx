@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Presentation, CheckSquare, Wallet, AlertTriangle, MessageSquare, Zap, LayoutDashboard, Settings, User, LogOut, Menu, X } from 'lucide-react';
+import { Presentation, CheckSquare, Wallet, AlertTriangle, MessageSquare, Zap, LayoutDashboard, Settings, User, LogOut, Menu, X, Home } from 'lucide-react';
 import DashboardView from './components/DashboardView';
 import ClassesView from './components/ClassesView';
 import AttendanceView from './components/AttendanceView';
@@ -8,6 +8,7 @@ import ViolationsView from './components/ViolationsView';
 import WhatsAppView from './components/WhatsAppView';
 import PremiumView from './components/PremiumView';
 import PublicAttendanceView from './components/PublicAttendanceView';
+import LandingPage from './components/LandingPage';
 import { User as UserType } from './types';
 
 export default function App() {
@@ -69,6 +70,13 @@ export default function App() {
     return <PublicAttendanceView token={token} />;
   }
 
+  // Show landing page for non-authenticated users at root
+  if (pathname === '/' && !currentUser && !loading) {
+    return <LandingPage />;
+  }
+
+  // Show landing page link in sidebar for authenticated users
+
   // Handle direct navigation requests from inside dashboards
   const handleNavigation = (tab: string, extra?: any) => {
     setExtraState(extra || null);
@@ -101,6 +109,19 @@ export default function App() {
     { id: 'whatsapp', label: 'WhatsApp Gateway', icon: MessageSquare, premiumRequired: true },
     { id: 'premium', label: 'Layanan Premium', icon: Zap, highlight: true }
   ];
+
+  // Add landing page link if user is logged in
+  const showLandingLink = currentUser && (
+    <a
+      href="/"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-center gap-3 p-3 rounded-xl text-sm font-semibold text-slate-400 hover:bg-slate-800/60 hover:text-white transition"
+    >
+      <Home className="w-5 h-5" />
+      <span>Landing Page</span>
+    </a>
+  );
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col md:flex-row font-sans">
