@@ -18,6 +18,14 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 
 app.use(express.json());
 
+// Import Payments routes (CommonJS)
+import('./server.payments.cjs').then((payments) => {
+  app.use('/api/payments', payments.default);
+  console.log('✅ Payment routes loaded');
+}).catch((err) => {
+  console.log('⚠️ Payment routes skipped (midtrans not configured)');
+});
+
 // Import WhatsApp routes (CommonJS)
 import('./server.whatsapp.cjs').then((wa) => {
   app.use('/api/whatsapp', wa.whatsappRouter);
