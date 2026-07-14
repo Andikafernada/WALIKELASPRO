@@ -1,27 +1,60 @@
-*.log
-.DS_Store
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+
+# Environment files
 .env
-.env.backup
-.env.production
-.phpactor.json
-.phpunit.result.cache
-/.codex
-/.cursor/
-/.idea
-/.nova
-/.phpunit.cache
-/.vscode
-/.zed
-/auth.json
-/node_modules
-/public/build
-/public/fonts-manifest.dev.json
-/public/hot
-/public/storage
-/storage/*.key
-/storage/pail
-/vendor
-_ide_helper.php
-Homestead.json
-Homestead.yaml
+.env.local
+.env.*.local
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# OS files
+.DS_Store
 Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# WhatsApp Sessions (PRIVATE - unique per user)
+storage/whatsapp-sessions/
+
+# WhatsApp QR images (if stored)
+*.qr.png
+
+# Vite
+node_modules/.vite/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Test coverage
+coverage/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Storage (database)
+storage/db.json
+
+# Cloudflare
+.cloudflared/
+
+# System files
+*.bak
+*.backup

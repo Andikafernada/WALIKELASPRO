@@ -1,99 +1,131 @@
-import React, { useState, useEffect } from 'react';
-import { MessageSquare, CheckCircle, Smartphone, Send, Power, AlertCircle, Wifi, RefreshCw, RefreshCw as LoopIcon } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { MessageSquare, CheckCircle, Smartphone, Send, Power, Wifi, QrCode, Loader2, AlertCircle, Users } from 'lucide-react';
 
 export default function WhatsAppView() {
   const [waStatus, setWaStatus] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
-  const [qrCodeActive, setQrCodeActive] = useState(false);
-  
-  // Test broadcast state
-  const [testPhone, setTestPhone] = useState('08561234567');
-  const [testMessage, setTestMessage] = useState('Halo Bapak/Ibu Wali Murid, kami menginfokan bahwa ananda Budi Santoso hari ini hadir di sekolah tepat waktu.');
+  const [qrCode, setQrCode] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string>('default');
+
+  // Test message state
+  const [testPhone, setTestPhone] = useState('');
+  const [testMessage, setTestMessage] = useState('');
   const [sendingTest, setSendingTest] = useState(false);
 
-  useEffect(() => {
-    fetchWaStatus();
-  }, []);
-
-  const fetchWaStatus = async () => {
+  // Fetch status function
+  const fetchStatus = useCallback(async () => {
     try {
-      setLoading(true);
-      const res = await fetch('/api/settings/whatsapp');
+      const res = await fetch(`/api/whatsapp/status?user_id=${userId}`);
       if (res.ok) {
         const data = await res.json();
         setWaStatus(data);
+
+        if (data.qr) {
+          setQrCode(data.qr);
+        }
+
+        if (data.connected) {
+          setQrCode(null);
+          setConnecting(false);
+        }
       }
     } catch (err) {
       console.error(err);
+      setError('Gagal mengambil status WhatsApp');
     } finally {
       setLoading(false);
     }
-  };
+  }, [userId]);
 
-  const handleConnectWa = () => {
-    setConnecting(true);
-    setQrCodeActive(true);
-    setTimeout(() => {
-      setConnecting(false);
-    }, 1500);
-  };
+  // Initial load
+  useEffect(() => {
+    fetchStatus();
+    // Poll every 3 seconds
+    const interval = setInterval(fetchStatus, 3000);
+    return () => clearInterval(interval);
+  }, [fetchStatus]);
 
-  const handleScanSimulation = async () => {
+  const handleConnect = async () => {
     try {
       setConnecting(true);
-      const res = await fetch('/api/settings/whatsapp/connect', {
+      setError(null);
+      setSuccess(null);
+      setQrCode(null);
+
+      const res = await fetch('/api/whatsapp/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: '081234567890' })
+        body: JSON.stringify({ user_id: userId })
       });
-      if (res.ok) {
-        const data = await res.json();
-        setWaStatus(data);
-        setQrCodeActive(false);
-        alert('WhatsApp berhasil terhubung dengan sukses!');
+
+      const data = await res.json();
+
+      if (data.success) {
+        setSuccess('⏳ QR Code sedang di-generate...');
+      } else {
+        setError(data.error || 'Gagal memulai koneksi');
+        setConnecting(false);
       }
     } catch (err) {
-      console.error(err);
-    } finally {
+      setError('Terjadi kesalahan koneksi');
       setConnecting(false);
     }
   };
 
-  const handleDisconnectWa = async () => {
-    if (!confirm('Apakah Anda yakin ingin memutuskan koneksi WhatsApp? Sistem tidak akan mengirimkan notifikasi otomatis ke wali murid lagi.')) return;
+  const handleDisconnect = async () => {
+    if (!confirm('Putuskan koneksi WhatsApp?')) return;
+
     try {
       setConnecting(true);
-      const res = await fetch('/api/settings/whatsapp/disconnect', { method: 'POST' });
+      const res = await fetch('/api/whatsapp/disconnect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId })
+      });
+
       if (res.ok) {
-        const data = await res.json();
-        setWaStatus(data);
+        setQrCode(null);
+        fetchStatus();
       }
     } catch (err) {
-      console.error(err);
+      setError('Terjadi kesalahan');
     } finally {
       setConnecting(false);
     }
   };
 
-  const handleSendTestMessage = async (e: React.FormEvent) => {
+  const handleSendTest = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!testPhone || !testMessage) return;
 
     try {
       setSendingTest(true);
-      const res = await fetch('/api/settings/whatsapp/test', {
+      setError(null);
+
+      const res = await fetch('/api/whatsapp/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: testPhone, message: testMessage })
+        body: JSON.stringify({
+          user_id: userId,
+          phone: testPhone,
+          message: testMessage
+        })
       });
 
       if (res.ok) {
-        alert('Pesan tes WhatsApp berhasil terkirim via server bot!');
-        fetchWaStatus();
+        setSuccess('✅ Pesan berhasil dikirim!');
+        setTestPhone('');
+        setTestMessage('');
+        setTimeout(() => setSuccess(null), 3000);
+      } else {
+        const data = await res.json();
+        setError(data.error || 'Gagal mengirim pesan');
       }
     } catch (err) {
-      console.error(err);
+      setError('Terjadi kesalahan');
     } finally {
       setSendingTest(false);
     }
@@ -102,7 +134,7 @@ export default function WhatsAppView() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[300px]">
-        <div className="w-8 h-8 border-3 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+        <Loader2 className="w-10 h-10 text-emerald-500 animate-spin" />
       </div>
     );
   }
@@ -113,141 +145,175 @@ export default function WhatsAppView() {
       <div>
         <h1 className="text-2xl font-bold text-white flex items-center gap-2">
           <MessageSquare className="w-6 h-6 text-emerald-400" />
-          WhatsApp Gateway Integrasi
+          WhatsApp Gateway
         </h1>
-        <p className="text-sm text-slate-400">Hubungkan akun WhatsApp Anda untuk mengirim pemberitahuan otomatis seputar kehadiran & pelanggaran disiplin siswa kepada orang tua secara instan.</p>
+        <p className="text-sm text-slate-400">
+          Hubungkan WhatsApp untuk kirim notifikasi otomatis ke wali murid.
+        </p>
       </div>
 
+      {/* Messages */}
+      {success && (
+        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4 text-sm text-emerald-400">
+          {success}
+        </div>
+      )}
+      {error && (
+        <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-4 text-sm text-rose-400 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" />
+          {error}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        
-        {/* LEFT COLUMN: Connection status & scan */}
+
+        {/* LEFT: Connection */}
         <div className="lg:col-span-5 space-y-6">
           <div className="bg-slate-800 border border-slate-700/60 rounded-2xl p-6 shadow-lg space-y-6">
-            <h3 className="font-bold text-white text-base">Status Integrasi</h3>
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-white">Status Koneksi</h3>
+              <div className="flex items-center gap-2 text-xs text-slate-400">
+                <Users className="w-4 h-4" />
+                <span>User ID: <code className="text-emerald-400">{userId}</code></span>
+              </div>
+            </div>
 
             {waStatus?.connected ? (
-              // Connected State UI
+              // CONNECTED
               <div className="space-y-6">
                 <div className="flex items-center gap-4 bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-xl">
-                  <div className="p-3 bg-emerald-500/20 text-emerald-400 rounded-lg animate-pulse">
+                  <div className="p-3 bg-emerald-500/20 text-emerald-400 rounded-lg">
                     <Wifi className="w-6 h-6" />
                   </div>
                   <div>
-                    <h4 className="font-bold text-emerald-400 flex items-center gap-1">
+                    <h4 className="font-bold text-emerald-400 flex items-center gap-2">
                       TERHUBUNG
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
                     </h4>
-                    <p className="text-xs text-slate-400 mt-0.5">Device: <span className="font-mono text-slate-200">{waStatus.phone}</span></p>
+                    <p className="text-xs text-slate-400 font-mono">{waStatus.phone}</p>
                   </div>
                 </div>
 
-                <div className="space-y-1.5 text-xs text-slate-400">
-                  <p className="flex items-center gap-1.5">
-                    <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
-                    Notifikasi Absensi Siswa <span className="text-emerald-400 font-semibold">(Aktif)</span>
-                  </p>
-                  <p className="flex items-center gap-1.5">
-                    <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
-                    Peringatan Pelanggaran Tata Tertib <span className="text-emerald-400 font-semibold">(Aktif)</span>
-                  </p>
+                <div className="space-y-2 text-sm text-slate-400">
+                  <p className="flex items-center gap-2"><CheckCircle className="w-4 h-4 text-emerald-400" /> Notifikasi Absensi Otomatis</p>
+                  <p className="flex items-center gap-2"><CheckCircle className="w-4 h-4 text-emerald-400" /> Peringatan Pelanggaran</p>
+                  <p className="flex items-center gap-2"><CheckCircle className="w-4 h-4 text-emerald-400" /> Reminder Kas Kelas</p>
                 </div>
 
                 <button
-                  onClick={handleDisconnectWa}
-                  disabled={connecting}
-                  className="w-full py-2.5 bg-rose-600/10 hover:bg-rose-600/20 text-rose-400 border border-rose-500/20 rounded-xl text-sm font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  onClick={handleDisconnect}
+                  className="w-full py-3 bg-rose-600/10 hover:bg-rose-600/20 text-rose-400 border border-rose-500/20 rounded-xl font-semibold transition flex items-center justify-center gap-2"
                 >
-                  <Power className="w-4 h-4" />
-                  Putuskan Sambungan
+                  <Power className="w-4 h-4" /> Putuskan Koneksi
                 </button>
               </div>
-            ) : qrCodeActive ? (
-              // Scan QR Simulation UI
-              <div className="flex flex-col items-center text-center space-y-5">
-                <div className="bg-white p-4 rounded-2xl shadow-xl w-48 h-48 flex items-center justify-center relative border border-slate-200">
-                  {connecting ? (
-                    <div className="absolute inset-0 bg-white/90 flex items-center justify-center rounded-2xl">
-                      <div className="w-8 h-8 border-3 border-slate-800 border-t-transparent rounded-full animate-spin"></div>
-                    </div>
-                  ) : null}
-                  {/* Fake QR code block generator */}
-                  <div className="w-full h-full bg-slate-900 flex flex-col items-center justify-center rounded-xl p-2">
-                    <div className="grid grid-cols-5 gap-1.5 w-full h-full">
-                      {Array.from({ length: 25 }).map((_, i) => (
-                        <div
-                          key={i}
-                          className={`rounded-sm ${
-                            (i * 7 + 3) % 5 === 0 || i % 4 === 0 ? 'bg-white' : 'bg-transparent'
-                          }`}
-                        />
-                      ))}
-                    </div>
-                  </div>
+            ) : qrCode ? (
+              // QR CODE DISPLAY
+              <div className="flex flex-col items-center text-center space-y-4">
+                <div className="bg-white rounded-2xl p-3 shadow-lg">
+                  <img src={qrCode} alt="QR Code" className="w-48 h-48" />
                 </div>
 
-                <div className="space-y-1 max-w-sm">
-                  <h4 className="font-bold text-slate-200 text-sm">Pindai QR Code Menggunakan WhatsApp Anda</h4>
-                  <p className="text-xs text-slate-400">Buka WhatsApp &gt; Perangkat Tertaut &gt; Tautkan Perangkat. Arahkan kamera Anda ke QR di atas.</p>
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-slate-200">📱 Scan QR Code Sekarang</p>
+                  <p className="text-xs text-slate-400">
+                    WhatsApp → Setelan → Perangkat Tertaut → Tautkan Perangkat
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 text-emerald-400 text-sm">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Menunggu scan...
                 </div>
 
                 <button
-                  onClick={handleScanSimulation}
-                  disabled={connecting}
-                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-semibold transition shadow-lg shadow-emerald-900/20 cursor-pointer"
+                  onClick={() => { setQrCode(null); setConnecting(false); }}
+                  className="text-xs text-slate-400 hover:text-slate-200 underline"
                 >
-                  Simulasi Scan Berhasil
+                  Tutup
                 </button>
               </div>
             ) : (
-              // Disconnected State UI
-              <div className="space-y-6 text-center py-4">
+              // NOT CONNECTED
+              <div className="text-center py-4 space-y-4">
                 <div className="w-16 h-16 bg-slate-700/60 text-slate-400 rounded-full flex items-center justify-center mx-auto">
                   <Smartphone className="w-8 h-8" />
                 </div>
-                <div className="space-y-1.5 max-w-sm mx-auto">
-                  <h4 className="font-bold text-slate-200 text-sm">WhatsApp Gateway Belum Terhubung</h4>
-                  <p className="text-xs text-slate-400">Hubungkan bot server WhatsApp untuk mengaktifkan broadcast notifikasi otomatis laporan absensi harian dan denda poin pelanggaran langsung ke wali murid.</p>
+
+                <div>
+                  <p className="text-sm font-semibold text-slate-200">WhatsApp Belum Terhubung</p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Klik tombol di bawah untuk generate QR code
+                  </p>
                 </div>
 
                 <button
-                  onClick={handleConnectWa}
+                  onClick={handleConnect}
                   disabled={connecting}
-                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-semibold transition cursor-pointer"
+                  className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-600 text-white rounded-xl font-semibold transition flex items-center justify-center gap-2"
                 >
-                  Hubungkan Perangkat Sekarang
+                  {connecting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Menyiapkan QR...
+                    </>
+                  ) : (
+                    <>
+                      <QrCode className="w-4 h-4" />
+                      Generate QR Code
+                    </>
+                  )}
                 </button>
               </div>
             )}
           </div>
+
+          {/* Tips */}
+          <div className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-4 text-xs text-slate-400">
+            <p className="font-semibold text-slate-300 mb-2">💡 Info Multi-Tenant:</p>
+            <ul className="space-y-1">
+              <li>• Setiap wali kelas punya WhatsApp sendiri</li>
+              <li>• QR code unik untuk setiap user</li>
+              <li>• Scan dalam 20 detik sebelum QR berubah</li>
+              <li>• Pastikan HP tetap terhubung internet</li>
+            </ul>
+          </div>
         </div>
 
-        {/* RIGHT COLUMN: Broadcast Test & logs */}
+        {/* RIGHT: Send Message */}
         <div className="lg:col-span-7 space-y-6">
-          
-          {/* Test broadcast message */}
           <div className="bg-slate-800 border border-slate-700/60 rounded-2xl p-6 shadow-lg space-y-4">
-            <h3 className="font-bold text-white text-base">Uji Kirim Pesan (WhatsApp)</h3>
-            <form onSubmit={handleSendTestMessage} className="space-y-4 text-sm">
+            <h3 className="font-bold text-white">Kirim Pesan Test</h3>
+
+            {!waStatus?.connected && (
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-xs text-amber-300">
+                ⚠️ Hubungkan WhatsApp terlebih dahulu untuk mengirim pesan.
+              </div>
+            )}
+
+            <form onSubmit={handleSendTest} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-1.5">No. HP Orang Tua / Tujuan *</label>
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Nomor HP</label>
                 <input
                   type="text"
-                  placeholder="Contoh: 08561234567"
+                  placeholder="08561234567"
                   value={testPhone}
                   onChange={(e) => setTestPhone(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 focus:border-emerald-500 text-white rounded-xl text-sm focus:outline-none transition font-mono"
+                  className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 focus:border-emerald-500 text-white rounded-xl text-sm font-mono"
                   required
+                  disabled={!waStatus?.connected}
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-1.5">Pesan WhatsApp *</label>
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">Pesan</label>
                 <textarea
-                  rows={3}
+                  rows={4}
                   value={testMessage}
                   onChange={(e) => setTestMessage(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 focus:border-emerald-500 text-white rounded-xl text-sm focus:outline-none transition"
+                  className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 focus:border-emerald-500 text-white rounded-xl text-sm resize-none"
                   required
+                  disabled={!waStatus?.connected}
                 />
               </div>
 
@@ -255,46 +321,15 @@ export default function WhatsAppView() {
                 <button
                   type="submit"
                   disabled={sendingTest || !waStatus?.connected}
-                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-800 disabled:text-slate-400 text-white font-bold rounded-xl text-xs transition flex items-center gap-1.5 cursor-pointer"
+                  className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-600 text-white font-bold rounded-xl text-sm flex items-center gap-2"
                 >
-                  <Send className="w-3.5 h-3.5" />
-                  Kirim Pesan Tes
+                  <Send className="w-4 h-4" />
+                  {sendingTest ? 'Mengirim...' : 'Kirim Pesan'}
                 </button>
               </div>
             </form>
           </div>
-
-          {/* Broadcast logs */}
-          <div className="bg-slate-800 border border-slate-700/60 rounded-2xl p-6 shadow-lg space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-700/60 pb-3">
-              <h3 className="font-bold text-white text-base">Riwayat Broadcast WhatsApp</h3>
-              <span className="text-xs text-slate-400">Terkirim: {waStatus?.logs?.length || 0}</span>
-            </div>
-
-            <div className="space-y-3 max-h-[300px] overflow-y-auto scrollbar-thin pr-1">
-              {waStatus?.logs?.map((log: any) => (
-                <div key={log.id} className="p-3 bg-slate-900/50 rounded-xl border border-slate-800 flex items-center justify-between gap-4 text-xs">
-                  <div className="space-y-1">
-                    <p className="font-bold text-slate-200">{log.student_name} <span className="font-normal text-slate-400">({log.type})</span></p>
-                    <p className="text-slate-400 font-mono">No. HP: {log.recipient}</p>
-                    <p className="text-slate-500 text-[10px]">{new Date(log.timestamp).toLocaleString('id-ID')}</p>
-                  </div>
-                  <div>
-                    <span className="bg-emerald-500/10 text-emerald-400 font-bold px-2 py-0.5 rounded text-[10px] uppercase">
-                      {log.status}
-                    </span>
-                  </div>
-                </div>
-              ))}
-
-              {waStatus?.logs?.length === 0 && (
-                <p className="text-center text-xs text-slate-500 py-6">Belum ada riwayat notifikasi WhatsApp terkirim.</p>
-              )}
-            </div>
-          </div>
-
         </div>
-
       </div>
     </div>
   );

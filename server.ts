@@ -3,15 +3,28 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import fs from 'fs';
+import dotenv from 'dotenv';
+
+// Load environment variables
+dotenv.config();
 
 // Resolve directory name in ESM
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
+const NODE_ENV = process.env.NODE_ENV || 'development';
 
 app.use(express.json());
+
+// Import WhatsApp routes (CommonJS)
+import('./server.whatsapp.cjs').then((wa) => {
+  app.use('/api/whatsapp', wa.whatsappRouter);
+  console.log('✅ WhatsApp Baileys routes loaded');
+}).catch((err) => {
+  console.error('Failed to load WhatsApp routes:', err);
+});
 
 // ==========================================
 // MOCK DATABASE & SEED DATA
@@ -617,44 +630,6 @@ app.delete('/api/violations/:id', (req, res) => {
   res.json({ success: true });
 });
 
-// 8. WhatsApp Mock Integration Settings
-app.get('/api/settings/whatsapp', (req, res) => {
-  res.json(whatsappStatus);
-});
-
-app.post('/api/settings/whatsapp/connect', (req, res) => {
-  const { phone } = req.body;
-  whatsappStatus.connected = true;
-  whatsappStatus.phone = phone || '081234567890';
-  whatsappStatus.qr_code = null;
-  saveDb();
-  res.json(whatsappStatus);
-});
-
-app.post('/api/settings/whatsapp/disconnect', (req, res) => {
-  whatsappStatus.connected = false;
-  whatsappStatus.phone = '';
-  saveDb();
-  res.json(whatsappStatus);
-});
-
-app.post('/api/settings/whatsapp/test', (req, res) => {
-  const { phone, message } = req.body;
-  if (!phone || !message) {
-    return res.status(400).json({ error: 'Phone and message required' });
-  }
-  whatsappStatus.logs.unshift({
-    id: 'wl-' + uuid(),
-    student_name: 'Test Message',
-    type: 'Test Broadcast',
-    recipient: phone,
-    status: 'sent',
-    timestamp: new Date().toISOString()
-  });
-  saveDb();
-  res.json({ success: true, log: whatsappStatus.logs[0] });
-});
-
 // Get Subscriptions
 app.get('/api/subscriptions', (req, res) => {
   res.json(subscriptions);
@@ -673,6 +648,14 @@ app.post('/api/langganan/checkout', (req, res) => {
 // ==========================================
 // VITE DEV / PRODUCTION STATIC SERVING
 // ==========================================
+// Test QR Page (Before Vite middleware)
+const testQrPath = path.join(process.cwd(), 'public', 'test-qr.html');
+if (fs.existsSync(testQrPath)) {
+  app.get('/qr-test', (req, res) => {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.sendFile(testQrPath);
+  });
+}
 
 if (process.env.NODE_ENV !== "production") {
   const vite = await createViteServer({
@@ -681,13 +664,16 @@ if (process.env.NODE_ENV !== "production") {
   });
   app.use(vite.middlewares);
 } else {
-  const distPath = path.join(process.cwd(), 'dist');
+  const distPath = path.join(process.cwd(), 'dist', 'client');
   app.use(express.static(distPath));
   app.get('*', (req, res) => {
     res.sendFile(path.join(distPath, 'index.html'));
   });
 }
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+const HOST = process.env.HOST || '0.0.0.0';
+app.listen(Number(PORT), HOST, () => {
+  console.log(`🚀 WALIKELASPRO server running on http://${HOST}:${PORT}`);
+  console.log(`📱 App: https://walas.my.id`);
+  console.log(`📱 WhatsApp: Ready for connection`);
 });

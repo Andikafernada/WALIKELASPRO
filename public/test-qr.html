@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WhatsApp QR - Multi Tenant</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      color: white;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .container {
+      background: #334155;
+      border-radius: 20px;
+      padding: 30px;
+      max-width: 500px;
+      margin: 0 auto;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+    h1 { margin-bottom: 5px; font-size: 24px; text-align: center; }
+    .subtitle { color: #94a3b8; text-align: center; margin-bottom: 20px; font-size: 14px; }
+
+    .input-group {
+      margin-bottom: 15px;
+    }
+    .input-group label {
+      display: block;
+      font-size: 12px;
+      color: #94a3b8;
+      margin-bottom: 5px;
+      font-weight: 600;
+    }
+    .input-group input {
+      width: 100%;
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid #475569;
+      background: #1e293b;
+      color: white;
+      font-size: 14px;
+    }
+    .input-group input:focus {
+      outline: none;
+      border-color: #10b981;
+    }
+
+    .status {
+      padding: 15px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      text-align: center;
+      font-weight: 600;
+    }
+    .disconnected { background: #475569; }
+    .connected { background: #065f46; }
+
+    .qr-box {
+      background: white;
+      padding: 20px;
+      border-radius: 15px;
+      text-align: center;
+      min-height: 300px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+    }
+    .qr-box img { width: 250px; height: 250px; }
+    .qr-placeholder { color: #64748b; }
+
+    .btn {
+      background: #10b981;
+      color: white;
+      border: none;
+      padding: 14px 28px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 16px;
+      font-weight: 600;
+      margin: 5px;
+      transition: all 0.2s;
+      width: 100%;
+    }
+    .btn:hover { background: #059669; }
+    .btn:disabled { background: #64748b; cursor: not-allowed; }
+    .btn-danger { background: #ef4444; }
+    .btn-danger:hover { background: #dc2626; }
+
+    .instructions {
+      background: #1e293b;
+      padding: 15px;
+      border-radius: 10px;
+      margin: 15px 0;
+      text-align: left;
+      font-size: 13px;
+      color: #94a3b8;
+    }
+    .instructions ol { margin-left: 20px; }
+    .instructions li { margin: 5px 0; }
+
+    .success { background: #065f46; padding: 10px; border-radius: 8px; margin: 10px 0; }
+    .error { background: #7f1d1d; padding: 10px; border-radius: 8px; margin: 10px 0; }
+
+    .user-info {
+      background: #1e293b;
+      padding: 10px 15px;
+      border-radius: 8px;
+      margin-bottom: 15px;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .user-info .icon { color: #10b981; }
+
+    .message-box {
+      background: #1e293b;
+      padding: 15px;
+      border-radius: 10px;
+      margin-top: 20px;
+    }
+    .message-box textarea {
+      width: 100%;
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid #475569;
+      background: #334155;
+      color: white;
+      font-size: 14px;
+      resize: none;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>📱 WhatsApp Gateway</h1>
+    <p class="subtitle">Multi-Tenant - Setiap User Punya WhatsApp Sendiri</p>
+
+    <div class="user-info">
+      <span class="icon">👤</span>
+      <div>
+        <strong>User ID:</strong>
+        <input type="text" id="userIdInput" value="default"
+               style="background:transparent;border:none;color:#10b981;font-weight:bold;margin-left:5px;width:150px;"
+               onchange="updateUserId(this.value)">
+      </div>
+    </div>
+
+    <div id="status" class="status disconnected">
+      Status: <span id="statusText">Memuat...</span>
+    </div>
+
+    <div id="message"></div>
+
+    <div class="qr-box" id="qrBox">
+      <div class="qr-placeholder" id="qrPlaceholder">
+        <p>👈 Masukkan User ID dan klik Connect</p>
+      </div>
+    </div>
+
+    <button class="btn" id="btnConnect" onclick="connectWA()">
+      🔗 Connect WhatsApp
+    </button>
+
+    <button class="btn btn-danger" id="btnDisconnect" onclick="disconnectWA()" style="display:none;">
+      ❌ Putuskan Koneksi
+    </button>
+
+    <div class="instructions">
+      <strong>📋 Cara Pakai:</strong>
+      <ol>
+        <li>Masukkan <strong>User ID</strong> (misal: guru1, andika, wali_kelas_a)</li>
+        <li>Klik <strong>Connect WhatsApp</strong></li>
+        <li>Tunggu QR Code muncul (~30 detik)</li>
+        <li>Scan dengan WhatsApp HP</li>
+        <li>Setiap user punya WhatsApp sendiri!</li>
+      </ol>
+    </div>
+
+    <div class="message-box" id="sendSection" style="display:none;">
+      <strong>📤 Test Kirim Pesan</strong>
+      <input type="text" id="phoneInput" placeholder="Nomor HP (08xx...)" style="margin-top:10px;">
+      <textarea id="messageInput" rows="3" placeholder="Isi pesan...">Halo dari WALIKELASPRO!</textarea>
+      <button class="btn" onclick="sendMessage()" style="margin-top:10px;">Kirim Pesan</button>
+    </div>
+  </div>
+
+  <script>
+    let currentQR = null;
+    let isConnected = false;
+    let currentUserId = 'default';
+
+    function updateUserId(userId) {
+      currentUserId = userId || 'default';
+      fetchStatus();
+    }
+
+    async function fetchStatus() {
+      try {
+        const res = await fetch(`/api/whatsapp/status?user_id=${currentUserId}`);
+        const data = await res.json();
+
+        isConnected = data.connected;
+
+        // Update status
+        const statusEl = document.getElementById('status');
+        const statusText = document.getElementById('statusText');
+
+        if (data.connected) {
+          statusEl.className = 'status connected';
+          statusText.textContent = '✅ TERHUBUNG - ' + (data.phone || 'Unknown');
+          document.getElementById('btnConnect').style.display = 'none';
+          document.getElementById('btnDisconnect').style.display = 'block';
+          document.getElementById('sendSection').style.display = 'block';
+          document.getElementById('qrBox').innerHTML = '<div class="success">✅ WhatsApp Terhubung!<br>User: ' + currentUserId + '</div>';
+        } else {
+          statusEl.className = 'status disconnected';
+          statusText.textContent = data.hasQR ? '⏳ Menunggu scan...' : '❌ Belum Terhubung';
+          document.getElementById('btnConnect').style.display = 'block';
+          document.getElementById('btnDisconnect').style.display = 'none';
+          document.getElementById('sendSection').style.display = 'none';
+        }
+
+        // Update QR
+        if (data.qr && !data.connected) {
+          document.getElementById('qrBox').innerHTML = `
+            <img src="${data.qr}" alt="QR Code">
+            <p style="color:#64748b;margin-top:10px;font-size:12px;">User: ${currentUserId}</p>
+          `;
+          statusText.textContent = '✅ QR Ready - Scan sekarang!';
+        }
+
+      } catch (err) {
+        console.error('Error:', err);
+        document.getElementById('statusText').textContent = 'Error: ' + err.message;
+      }
+    }
+
+    async function connectWA() {
+      const btn = document.getElementById('btnConnect');
+      btn.disabled = true;
+      btn.textContent = '⏳ Menyiapkan...';
+      document.getElementById('statusText').textContent = '⏳ Memulai...';
+      document.getElementById('message').innerHTML = '';
+
+      try {
+        const res = await fetch('/api/whatsapp/connect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: currentUserId })
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          document.getElementById('message').innerHTML = '<div class="success">⏳ QR Code sedang di-generate...</div>';
+          pollStatus();
+        } else {
+          btn.disabled = false;
+          btn.textContent = '🔗 Connect WhatsApp';
+          document.getElementById('message').innerHTML = '<div class="error">Error: ' + data.error + '</div>';
+        }
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = '🔗 Connect WhatsApp';
+        document.getElementById('message').innerHTML = '<div class="error">Error: ' + err.message + '</div>';
+      }
+    }
+
+    function pollStatus() {
+      if (isConnected) return;
+      fetchStatus();
+      if (!isConnected) {
+        setTimeout(pollStatus, 2000);
+      }
+    }
+
+    async function disconnectWA() {
+      try {
+        await fetch('/api/whatsapp/disconnect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: currentUserId })
+        });
+        fetchStatus();
+      } catch (err) {
+        document.getElementById('message').innerHTML = '<div class="error">Error: ' + err.message + '</div>';
+      }
+    }
+
+    async function sendMessage() {
+      const phone = document.getElementById('phoneInput').value;
+      const message = document.getElementById('messageInput').value;
+
+      if (!phone || !message) {
+        document.getElementById('message').innerHTML = '<div class="error">Lengkapi nomor HP dan pesan!</div>';
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/whatsapp/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: currentUserId, phone, message })
+        });
+
+        if (res.ok) {
+          document.getElementById('message').innerHTML = '<div class="success">✅ Pesan berhasil dikirim!</div>';
+        } else {
+          const data = await res.json();
+          document.getElementById('message').innerHTML = '<div class="error">Error: ' + data.error + '</div>';
+        }
+      } catch (err) {
+        document.getElementById('message').innerHTML = '<div class="error">Error: ' + err.message + '</div>';
+      }
+    }
+
+    // Initial fetch
+    fetchStatus();
+
+    // Poll every 3 seconds
+    setInterval(fetchStatus, 3000);
+  </script>
+</body>
+</html>
