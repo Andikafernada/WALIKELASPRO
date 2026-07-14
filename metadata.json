@@ -1,0 +1,8 @@
+{
+  "name": "Sistem Wali Kelas Mandiri",
+  "description": "Sistem asisten guru wali kelas untuk absensi mandiri, laporan kas keuangan, dan pencatatan pelanggaran disiplin siswa dengan notifikasi otomatis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
