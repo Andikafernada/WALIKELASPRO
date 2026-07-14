@@ -132,13 +132,6 @@ export default function LoginView({ onLogin, onSwitchToRegister }: LoginViewProp
             </p>
           </div>
         </div>
-
-        {/* Demo Account */}
-        <div className="mt-4 bg-slate-800/50 border border-slate-700/50 rounded-xl p-4 text-center">
-          <p className="text-slate-400 text-xs mb-2">Demo Account</p>
-          <p className="text-slate-300 text-sm font-mono">Email: andika@school.com</p>
-          <p className="text-slate-300 text-sm font-mono">Password: (kosongkan saja)</p>
-        </div>
       </div>
     </div>
   );
