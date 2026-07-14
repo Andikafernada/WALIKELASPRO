@@ -48,12 +48,30 @@ export default function App() {
     }
   };
 
+  // Check localStorage for saved user on mount
+  useEffect(() => {
+    const savedUser = localStorage.getItem('walaspro_user');
+    if (savedUser) {
+      try {
+        const user = JSON.parse(savedUser);
+        setCurrentUser(user);
+        setAuthView('app');
+      } catch (e) {
+        localStorage.removeItem('walaspro_user');
+      }
+    }
+  }, []);
+
   const handleLogin = (user: UserType) => {
+    // Save to localStorage
+    localStorage.setItem('walaspro_user', JSON.stringify(user));
     setCurrentUser(user);
     setAuthView('app');
   };
 
   const handleRegister = (user: UserType) => {
+    // Save to localStorage
+    localStorage.setItem('walaspro_user', JSON.stringify(user));
     setCurrentUser(user);
     setAuthView('app');
   };
@@ -64,9 +82,12 @@ export default function App() {
     } catch (err) {
       console.error(err);
     }
+    // Clear localStorage
+    localStorage.removeItem('walaspro_user');
     setCurrentUser(null);
     setAuthView('landing');
     setCurrentTab('dashboard');
+    setMobileMenuOpen(false);
   };
 
   const handleUpgradeUser = async () => {
