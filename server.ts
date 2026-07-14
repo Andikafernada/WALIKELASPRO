@@ -181,6 +181,41 @@ app.post('/api/auth/login', (req, res) => {
   res.json(currentUser);
 });
 
+// Register new user
+app.post('/api/auth/register', (req, res) => {
+  const { name, email, password, phone, school_name } = req.body;
+
+  if (!name || !email) {
+    return res.status(400).json({ error: 'Name and email required' });
+  }
+
+  // Check if email already exists
+  if (currentUser && currentUser.email === email) {
+    return res.status(400).json({ error: 'Email sudah terdaftar' });
+  }
+
+  // Create new user (for demo, we replace current user)
+  currentUser = {
+    id: 'u1',
+    name: name,
+    email: email,
+    phone: phone || '',
+    school_name: school_name || '',
+    role: 'user',
+    premium_expires_at: null // Free tier
+  };
+
+  saveDb();
+  res.json(currentUser);
+});
+
+// Logout
+app.post('/api/auth/logout', (req, res) => {
+  // For demo, we just return success
+  // In production, you'd invalidate session/token
+  res.json({ success: true, message: 'Logged out' });
+});
+
 app.post('/api/auth/profile', (req, res) => {
   const { name, school_name, phone } = req.body;
   currentUser.name = name || currentUser.name;
