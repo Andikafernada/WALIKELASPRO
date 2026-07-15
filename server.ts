@@ -4,9 +4,13 @@ import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import fs from 'fs';
 import dotenv from 'dotenv';
+import cookieParser from 'cookie-parser';
 
 // Load environment variables
 dotenv.config();
+
+// Import auth middleware
+import { generateToken, hashPassword, comparePassword, requireAuth } from './src/server/middleware/auth.js';
 
 // Resolve directory name in ESM
 const __filename = fileURLToPath(import.meta.url);
@@ -17,6 +21,7 @@ const PORT = process.env.PORT || 3000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
 app.use(express.json());
+app.use(cookieParser());
 
 // Import Payments routes (CommonJS)
 import('./server.payments.cjs').then((payments) => {
@@ -38,15 +43,43 @@ import('./server.whatsapp.cjs').then((wa) => {
 // MOCK DATABASE & SEED DATA
 // ==========================================
 
-let currentUser = {
-  id: 'u1',
-  name: 'Andika Fernada, S.Pd.',
-  email: 'andika@school.com',
-  phone: '081234567890',
-  school_name: 'SMA Negeri 1 Jakarta',
-  role: 'user', // user but can upgrade to premium
-  premium_expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() // premium active for 30 days
+type UserType = {
+  id: string;
+  name: string;
+  email: string;
+  password_hash?: string;
+  phone: string;
+  school_name: string;
+  role: string;
+  premium_expires_at: string | null;
 };
+
+let users: UserType[] = [
+  {
+    id: 'u1',
+    name: 'Andika Fernada, S.Pd.',
+    email: 'andika@school.com',
+    password_hash: '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/X4d5GIHN3.ztFdPHq', // password: demo123
+    phone: '081234567890',
+    school_name: 'SMA Negeri 1 Jakarta',
+    role: 'user',
+    premium_expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+  }
+];
+
+// Legacy reference for backwards compatibility in some places
+let currentUser = users[0];
+
+// Helper to get user by ID
+function getUserById(userId: string): UserType | null {
+  return users.find(u => u.id === userId) || null;
+}
+
+// Helper to get current user from request
+function getCurrentUserFromRequest(userId: string | undefined): UserType | null {
+  if (!userId) return null;
+  return getUserById(userId);
+}
 
 let classes = [
   { id: 'c1', user_id: 'u1', name: 'XII RPL 1', academic_year: '2026/2027', room: 'Lab Komputer 3', phone_petugas: '0811223344', phone_walikelas: '081234567890' },
@@ -120,7 +153,11 @@ function loadDb() {
   try {
     if (fs.existsSync(DB_FILE)) {
       const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-      if (data.currentUser) currentUser = data.currentUser;
+      if (data.users && Array.isArray(data.users)) users = data.users;
+      // Backwards compatibility: if old currentUser exists but no users array
+      if (data.currentUser && (!data.users || data.users.length === 0)) {
+        users = [data.currentUser];
+      }
       if (data.classes) classes = data.classes;
       if (data.students) students = data.students;
       if (data.attendanceSessions) attendanceSessions = data.attendanceSessions;
@@ -129,6 +166,8 @@ function loadDb() {
       if (data.cashLedgers) cashLedgers = data.cashLedgers;
       if (data.subscriptions) subscriptions = data.subscriptions;
       if (data.whatsappStatus) whatsappStatus = data.whatsappStatus;
+      // Update legacy reference
+      currentUser = users[0];
       console.log('Database loaded successfully from ' + DB_FILE);
     } else {
       // Ensure directory exists
@@ -147,7 +186,7 @@ function loadDb() {
 function saveDb() {
   try {
     const data = {
-      currentUser,
+      users,
       classes,
       students,
       attendanceSessions,
@@ -170,105 +209,306 @@ loadDb();
 const uuid = () => Math.random().toString(36).substring(2, 9);
 
 // ==========================================
+// OWNERSHIP VERIFICATION HELPERS
+// ==========================================
+
+/**
+ * Verify that a class belongs to the given user.
+ * Returns the class object if valid, otherwise sends 403 response.
+ */
+function verifyClassOwnership(classId: string, userId: string, res: express.Response): any | null {
+  const cls = classes.find(c => c.id === classId);
+  if (!cls || cls.user_id !== userId) {
+    res.status(403).json({ error: 'Forbidden: Anda tidak memiliki akses ke resource ini' });
+    return null;
+  }
+  return cls;
+}
+
+/**
+ * Get class by ID (without ownership check)
+ */
+function getClassById(classId: string): any | null {
+  return classes.find(c => c.id === classId) || null;
+}
+
+/**
+ * Verify that a student belongs to a class owned by the given user.
+ */
+function verifyStudentOwnership(studentId: string, userId: string, res: express.Response): any | null {
+  const student = students.find(s => s.id === studentId);
+  if (!student) {
+    res.status(404).json({ error: 'Student not found' });
+    return null;
+  }
+  // Check class ownership
+  const cls = getClassById(student.class_id);
+  if (!cls || cls.user_id !== userId) {
+    res.status(403).json({ error: 'Forbidden: Anda tidak memiliki akses ke resource ini' });
+    return null;
+  }
+  return student;
+}
+
+/**
+ * Verify that an attendance session belongs to a class owned by the given user.
+ */
+function verifySessionOwnership(sessionId: string, userId: string, res: express.Response): any | null {
+  const session = attendanceSessions.find(as => as.id === sessionId);
+  if (!session) {
+    res.status(404).json({ error: 'Session not found' });
+    return null;
+  }
+  // Check class ownership through session's class_id
+  const cls = getClassById(session.class_id);
+  if (!cls || cls.user_id !== userId) {
+    res.status(403).json({ error: 'Forbidden: Anda tidak memiliki akses ke resource ini' });
+    return null;
+  }
+  return session;
+}
+
+/**
+ * Verify that a cash ledger belongs to a class owned by the given user.
+ */
+function verifyCashLedgerOwnership(ledgerId: string, userId: string, res: express.Response): any | null {
+  const ledger = cashLedgers.find(cl => cl.id === ledgerId);
+  if (!ledger) {
+    res.status(404).json({ error: 'Transaction not found' });
+    return null;
+  }
+  // Check class ownership
+  const cls = getClassById(ledger.class_id);
+  if (!cls || cls.user_id !== userId) {
+    res.status(403).json({ error: 'Forbidden: Anda tidak memiliki akses ke resource ini' });
+    return null;
+  }
+  return ledger;
+}
+
+/**
+ * Verify that a violation belongs to a student in a class owned by the given user.
+ */
+function verifyViolationOwnership(violationId: string, userId: string, res: express.Response): any | null {
+  const violation = violations.find(v => v.id === violationId);
+  if (!violation) {
+    res.status(404).json({ error: 'Violation not found' });
+    return null;
+  }
+  // Find the student to get class_id
+  const student = students.find(s => s.id === violation.student_id);
+  if (!student) {
+    res.status(404).json({ error: 'Student not found' });
+    return null;
+  }
+  // Check class ownership
+  const cls = getClassById(student.class_id);
+  if (!cls || cls.user_id !== userId) {
+    res.status(403).json({ error: 'Forbidden: Anda tidak memiliki akses ke resource ini' });
+    return null;
+  }
+  return violation;
+}
+
+// ==========================================
 // API ENDPOINTS
 // ==========================================
 
 // 1. Auth / User profile
-app.get('/api/auth/me', (req, res) => {
-  res.json(currentUser);
+app.get('/api/auth/me', requireAuth, (req, res) => {
+  const user = getCurrentUserFromRequest(req.userId);
+  if (!user) {
+    return res.status(401).json({ error: 'User not found' });
+  }
+  const { password_hash, ...safeUser } = user;
+  res.json(safeUser);
 });
 
-app.post('/api/auth/login', (req, res) => {
-  const { email } = req.body;
-  if (!email) {
-    return res.status(400).json({ error: 'Email required' });
+app.post('/api/auth/login', async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email dan password diperlukan' });
   }
-  // Simulated login/update
-  currentUser.email = email;
-  saveDb();
-  res.json(currentUser);
+
+  // Find user by email
+  const user = users.find(u => u.email === email);
+  if (!user) {
+    return res.status(401).json({ error: 'Email atau password salah' });
+  }
+
+  // Check if user has password set
+  if (!user.password_hash) {
+    return res.status(401).json({ error: 'Akun belum memiliki password. Silakan register ulang.' });
+  }
+
+  // Verify password with bcrypt
+  const isValid = await comparePassword(password, user.password_hash);
+  if (!isValid) {
+    return res.status(401).json({ error: 'Email atau password salah' });
+  }
+
+  // Generate JWT and set as httpOnly cookie
+  const token = generateToken(user.id);
+  res.cookie('auth_token', token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+  });
+
+  // Update legacy reference
+  currentUser = user;
+
+  // Return user data WITHOUT password_hash
+  const { password_hash, ...safeUser } = user;
+  res.json(safeUser);
 });
 
 // Register new user
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
   const { name, email, password, phone, school_name } = req.body;
 
-  if (!name || !email) {
-    return res.status(400).json({ error: 'Name and email required' });
+  if (!name || !email || !password) {
+    return res.status(400).json({ error: 'Nama, email, dan password diperlukan' });
+  }
+
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'Password minimal 6 karakter' });
   }
 
   // Check if email already exists
-  if (currentUser && currentUser.email === email) {
+  if (users.some(u => u.email === email)) {
     return res.status(400).json({ error: 'Email sudah terdaftar' });
   }
 
-  // Create new user (for demo, we replace current user)
-  currentUser = {
-    id: 'u1',
-    name: name,
-    email: email,
+  // Hash password with bcrypt
+  const password_hash = await hashPassword(password);
+
+  // Create new user with hashed password
+  const newUser: UserType = {
+    id: 'u-' + uuid(),
+    name,
+    email,
+    password_hash,
     phone: phone || '',
     school_name: school_name || '',
     role: 'user',
     premium_expires_at: null // Free tier
   };
 
+  users.push(newUser);
   saveDb();
-  res.json(currentUser);
+
+  // Generate JWT and set as httpOnly cookie
+  const token = generateToken(newUser.id);
+  res.cookie('auth_token', token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+  });
+
+  // Update legacy reference
+  currentUser = newUser;
+
+  // Return user data WITHOUT password_hash
+  const { password_hash: _, ...safeUser } = newUser;
+  res.status(201).json(safeUser);
 });
 
 // Logout
 app.post('/api/auth/logout', (req, res) => {
-  // For demo, we just return success
-  // In production, you'd invalidate session/token
-  res.json({ success: true, message: 'Logged out' });
+  res.clearCookie('auth_token');
+  res.json({ success: true, message: 'Logged out successfully' });
 });
 
-app.post('/api/auth/profile', (req, res) => {
+app.post('/api/auth/profile', requireAuth, (req, res) => {
+  const user = getCurrentUserFromRequest(req.userId);
+  if (!user) {
+    return res.status(401).json({ error: 'User not found' });
+  }
   const { name, school_name, phone } = req.body;
-  currentUser.name = name || currentUser.name;
-  currentUser.school_name = school_name || currentUser.school_name;
-  currentUser.phone = phone || currentUser.phone;
+  user.name = name || user.name;
+  user.school_name = school_name || user.school_name;
+  user.phone = phone || user.phone;
+  // Update in users array
+  const userIndex = users.findIndex(u => u.id === user.id);
+  if (userIndex !== -1) {
+    users[userIndex] = user;
+  }
+  currentUser = user;
   saveDb();
-  res.json(currentUser);
+  const { password_hash, ...safeUser } = user;
+  res.json(safeUser);
 });
 
 // Upgrade to Premium
-app.post('/api/auth/upgrade', (req, res) => {
-  currentUser.premium_expires_at = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+app.post('/api/auth/upgrade', requireAuth, (req, res) => {
+  const user = getCurrentUserFromRequest(req.userId);
+  if (!user) {
+    return res.status(401).json({ error: 'User not found' });
+  }
+  user.premium_expires_at = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+  // Update in users array
+  const userIndex = users.findIndex(u => u.id === user.id);
+  if (userIndex !== -1) {
+    users[userIndex] = user;
+  }
   subscriptions.unshift({
     id: 'sub-' + uuid(),
-    user_id: 'u1',
+    user_id: user.id,
     status: 'success',
     package_name: 'Premium 1 Year',
     amount: 149000,
-    expires_at: currentUser.premium_expires_at,
+    expires_at: user.premium_expires_at,
     created_at: new Date().toISOString()
   });
   saveDb();
-  res.json(currentUser);
+  currentUser = user;
+  const { password_hash, ...safeUser } = user;
+  res.json(safeUser);
 });
 
 // Downgrade to Free
-app.post('/api/auth/downgrade', (req, res) => {
-  currentUser.premium_expires_at = null;
+app.post('/api/auth/downgrade', requireAuth, (req, res) => {
+  const user = getCurrentUserFromRequest(req.userId);
+  if (!user) {
+    return res.status(401).json({ error: 'User not found' });
+  }
+  user.premium_expires_at = null;
+  // Update in users array
+  const userIndex = users.findIndex(u => u.id === user.id);
+  if (userIndex !== -1) {
+    users[userIndex] = user;
+  }
   saveDb();
-  res.json(currentUser);
+  currentUser = user;
+  const { password_hash, ...safeUser } = user;
+  res.json(safeUser);
 });
 
-// 2. Class Rooms (Kelas)
-app.get('/api/classes', (req, res) => {
-  res.json(classes);
+// 2. Class Rooms (Kelas) - Protected + Ownership
+app.get('/api/classes', requireAuth, (req, res) => {
+  // FILTER: Only return classes belonging to this user
+  const userClasses = classes.filter(c => c.user_id === req.userId);
+  res.json(userClasses);
 });
 
-app.post('/api/classes', (req, res) => {
+// Get single class by ID - Protected + Ownership
+app.get('/api/classes/:id', requireAuth, (req, res) => {
+  const cls = verifyClassOwnership(req.params.id, req.userId!, res);
+  if (!cls) return; // 403 already sent
+  res.json(cls);
+});
+
+app.post('/api/classes', requireAuth, (req, res) => {
   const { name, academic_year, room, phone_petugas, phone_walikelas } = req.body;
   if (!name || !academic_year) {
     return res.status(400).json({ error: 'Name and Academic Year are required' });
   }
   const newClass = {
     id: 'c-' + uuid(),
-    user_id: currentUser.id,
+    user_id: req.userId!, // New class automatically belongs to current user
     name,
     academic_year,
     room: room || '',
@@ -280,12 +520,19 @@ app.post('/api/classes', (req, res) => {
   res.status(201).json(newClass);
 });
 
-app.put('/api/classes/:id', (req, res) => {
+app.put('/api/classes/:id', requireAuth, (req, res) => {
+  // VERIFY OWNERSHIP first
+  const cls = verifyClassOwnership(req.params.id, req.userId!, res);
+  if (!cls) return; // 403 already sent
+
   const { name, academic_year, room, phone_petugas, phone_walikelas } = req.body;
   const clsIndex = classes.findIndex(c => c.id === req.params.id);
-  if (clsIndex === -1) {
-    return res.status(404).json({ error: 'Class not found' });
+
+  // Double-check (race condition protection)
+  if (classes[clsIndex].user_id !== req.userId) {
+    return res.status(403).json({ error: 'Forbidden: Anda tidak memiliki akses ke resource ini' });
   }
+
   classes[clsIndex] = {
     ...classes[clsIndex],
     name: name || classes[clsIndex].name,
@@ -298,20 +545,50 @@ app.put('/api/classes/:id', (req, res) => {
   res.json(classes[clsIndex]);
 });
 
-app.delete('/api/classes/:id', (req, res) => {
-  classes = classes.filter(c => c.id !== req.params.id);
-  students = students.filter(s => s.class_id !== req.params.id);
+app.delete('/api/classes/:id', requireAuth, (req, res) => {
+  // VERIFY OWNERSHIP first
+  const cls = verifyClassOwnership(req.params.id, req.userId!, res);
+  if (!cls) return; // 403 already sent
+
+  // Double-check (race condition protection)
+  const clsIndex = classes.findIndex(c => c.id === req.params.id);
+  if (clsIndex === -1 || classes[clsIndex].user_id !== req.userId) {
+    return res.status(403).json({ error: 'Forbidden: Anda tidak memiliki akses ke resource ini' });
+  }
+
+  const classIdToDelete = req.params.id;
+  classes = classes.filter(c => c.id !== classIdToDelete);
+  // Also delete related data
+  students = students.filter(s => s.class_id !== classIdToDelete);
+  // Delete attendance sessions and related attendances
+  const sessionIds = attendanceSessions.filter(as => as.class_id === classIdToDelete).map(as => as.id);
+  attendanceSessions = attendanceSessions.filter(as => as.class_id !== classIdToDelete);
+  attendances = attendances.filter(a => !sessionIds.includes(a.session_id));
+  // Delete related violations (through students)
+  const studentIds = students.filter(s => s.class_id === classIdToDelete).map(s => s.id);
+  violations = violations.filter(v => !studentIds.includes(v.student_id));
+  // Delete related cash ledgers
+  cashLedgers = cashLedgers.filter(cl => cl.class_id !== classIdToDelete);
+
   saveDb();
   res.json({ success: true });
 });
 
-// 3. Students (Siswa) per Class
-app.get('/api/classes/:classId/students', (req, res) => {
+// 3. Students (Siswa) per Class - Protected + Ownership
+app.get('/api/classes/:classId/students', requireAuth, (req, res) => {
+  // VERIFY OWNERSHIP first
+  const cls = verifyClassOwnership(req.params.classId, req.userId!, res);
+  if (!cls) return; // 403 already sent
+
   const classStudents = students.filter(s => s.class_id === req.params.classId);
   res.json(classStudents);
 });
 
-app.post('/api/classes/:classId/students', (req, res) => {
+app.post('/api/classes/:classId/students', requireAuth, (req, res) => {
+  // VERIFY OWNERSHIP first
+  const cls = verifyClassOwnership(req.params.classId, req.userId!, res);
+  if (!cls) return; // 403 already sent
+
   const { nis, name, gender, phone_parent, address } = req.body;
   if (!nis || !name || !gender) {
     return res.status(400).json({ error: 'NIS, Name and Gender are required' });
@@ -332,12 +609,27 @@ app.post('/api/classes/:classId/students', (req, res) => {
   res.status(201).json(newStudent);
 });
 
-app.put('/api/students/:id', (req, res) => {
+// Get single student by ID - Protected + Ownership
+app.get('/api/students/:id', requireAuth, (req, res) => {
+  const student = verifyStudentOwnership(req.params.id, req.userId!, res);
+  if (!student) return; // 403/404 already sent
+  res.json(student);
+});
+
+app.put('/api/students/:id', requireAuth, (req, res) => {
+  // VERIFY STUDENT OWNERSHIP (through class)
+  const student = verifyStudentOwnership(req.params.id, req.userId!, res);
+  if (!student) return; // 403/404 already sent
+
   const { nis, name, gender, phone_parent, address, discipline_points } = req.body;
   const studIndex = students.findIndex(s => s.id === req.params.id);
-  if (studIndex === -1) {
-    return res.status(404).json({ error: 'Student not found' });
+
+  // Double-check ownership (race condition protection)
+  const checkClass = getClassById(students[studIndex].class_id);
+  if (!checkClass || checkClass.user_id !== req.userId) {
+    return res.status(403).json({ error: 'Forbidden: Anda tidak memiliki akses ke resource ini' });
   }
+
   students[studIndex] = {
     ...students[studIndex],
     nis: nis || students[studIndex].nis,
@@ -351,7 +643,18 @@ app.put('/api/students/:id', (req, res) => {
   res.json(students[studIndex]);
 });
 
-app.delete('/api/students/:id', (req, res) => {
+app.delete('/api/students/:id', requireAuth, (req, res) => {
+  // VERIFY STUDENT OWNERSHIP (through class)
+  const student = verifyStudentOwnership(req.params.id, req.userId!, res);
+  if (!student) return; // 403/404 already sent
+
+  // Double-check ownership
+  const studIndex = students.findIndex(s => s.id === req.params.id);
+  const checkClass = getClassById(students[studIndex].class_id);
+  if (!checkClass || checkClass.user_id !== req.userId) {
+    return res.status(403).json({ error: 'Forbidden: Anda tidak memiliki akses ke resource ini' });
+  }
+
   students = students.filter(s => s.id !== req.params.id);
   violations = violations.filter(v => v.student_id !== req.params.id);
   attendances = attendances.filter(a => a.student_id !== req.params.id);
@@ -360,17 +663,21 @@ app.delete('/api/students/:id', (req, res) => {
   res.json({ success: true });
 });
 
-// 4. Attendance Sessions & Records
-app.get('/api/classes/:classId/attendance-sessions', (req, res) => {
+// 4. Attendance Sessions & Records - Protected + Ownership
+app.get('/api/classes/:classId/attendance-sessions', requireAuth, (req, res) => {
+  const cls = verifyClassOwnership(req.params.classId, req.userId!, res);
+  if (!cls) return;
   const sessions = attendanceSessions.filter(as => as.class_id === req.params.classId);
   res.json(sessions);
 });
 
-app.post('/api/classes/:classId/attendance-sessions', (req, res) => {
+app.post('/api/classes/:classId/attendance-sessions', requireAuth, (req, res) => {
+  const cls = verifyClassOwnership(req.params.classId, req.userId!, res);
+  if (!cls) return;
   const { daily_pin, expires_hours } = req.body;
   const token = 'tok-' + uuid();
   const expiresAt = new Date(Date.now() + (Number(expires_hours || 4)) * 60 * 60 * 1000).toISOString();
-  
+
   const newSession = {
     id: 'as-' + uuid(),
     class_id: req.params.classId,
@@ -386,37 +693,40 @@ app.post('/api/classes/:classId/attendance-sessions', (req, res) => {
   res.status(201).json(newSession);
 });
 
-app.patch('/api/attendance-sessions/:id/expire', (req, res) => {
+app.patch('/api/attendance-sessions/:id/expire', requireAuth, (req, res) => {
+  const session = verifySessionOwnership(req.params.id, req.userId!, res);
+  if (!session) return;
   const sessIndex = attendanceSessions.findIndex(as => as.id === req.params.id);
-  if (sessIndex === -1) {
-    return res.status(404).json({ error: 'Session not found' });
-  }
   attendanceSessions[sessIndex].status = 'expired';
   saveDb();
   res.json(attendanceSessions[sessIndex]);
 });
 
-app.get('/api/attendance-sessions/:id', (req, res) => {
-  const session = attendanceSessions.find(as => as.id === req.params.id);
-  if (!session) {
-    return res.status(404).json({ error: 'Session not found' });
-  }
+app.get('/api/attendance-sessions/:id', requireAuth, (req, res) => {
+  const session = verifySessionOwnership(req.params.id, req.userId!, res);
+  if (!session) return;
   res.json(session);
 });
 
-// Get/Save records for a session (Teacher view)
-app.get('/api/attendance-sessions/:id/records', (req, res) => {
+app.get('/api/attendance-sessions/:id/records', requireAuth, (req, res) => {
+  const session = verifySessionOwnership(req.params.id, req.userId!, res);
+  if (!session) return;
   const sessionRecords = attendances.filter(a => a.session_id === req.params.id);
   res.json(sessionRecords);
 });
 
-app.post('/api/attendance-sessions/:id/records', (req, res) => {
-  const { records } = req.body; // Array of { student_id, status, notes }
+app.post('/api/attendance-sessions/:id/records', requireAuth, (req, res) => {
+  const session = verifySessionOwnership(req.params.id, req.userId!, res);
+  if (!session) return;
+  const { records } = req.body;
   if (!Array.isArray(records)) {
     return res.status(400).json({ error: 'Records array is required' });
   }
 
-  // Remove existing records for this session first to overwrite
+  // Get current user for verified_by
+  const user = getCurrentUserFromRequest(req.userId);
+  const verifiedByName = user?.name || 'Unknown';
+
   attendances = attendances.filter(a => a.session_id !== req.params.id);
 
   records.forEach((rec: any) => {
@@ -426,11 +736,10 @@ app.post('/api/attendance-sessions/:id/records', (req, res) => {
       student_id: rec.student_id,
       status: rec.status,
       notes: rec.notes || '',
-      verified_by: currentUser.name,
+      verified_by: verifiedByName,
       attended_at: new Date().toISOString()
     });
 
-    // Simulate WhatsApp alert if absent / sick and WhatsApp is connected
     if (whatsappStatus.connected && ['sakit', 'izin', 'alfa'].includes(rec.status)) {
       const student = students.find(s => s.id === rec.student_id);
       if (student && student.phone_parent) {
@@ -450,7 +759,7 @@ app.post('/api/attendance-sessions/:id/records', (req, res) => {
   res.json({ success: true, count: records.length });
 });
 
-// 5. Public Attendance (Submitting via unique token)
+// 5. Public Attendance (Submitting via unique token) - NO AUTH REQUIRED (designed to be public)
 app.get('/api/attendance-public/session/:token', (req, res) => {
   const session = attendanceSessions.find(as => as.token === req.params.token);
   if (!session) {
@@ -533,13 +842,17 @@ app.post('/api/attendance-public/submit', (req, res) => {
   res.json({ success: true, attendance: newAttendance });
 });
 
-// 6. Cash Ledger (Kas Kelas)
-app.get('/api/classes/:classId/cash-ledgers', (req, res) => {
+// 6. Cash Ledger (Kas Kelas) - Protected + Ownership
+app.get('/api/classes/:classId/cash-ledgers', requireAuth, (req, res) => {
+  const cls = verifyClassOwnership(req.params.classId, req.userId!, res);
+  if (!cls) return;
   const ledgers = cashLedgers.filter(cl => cl.class_id === req.params.classId);
   res.json(ledgers);
 });
 
-app.post('/api/classes/:classId/cash-ledgers', (req, res) => {
+app.post('/api/classes/:classId/cash-ledgers', requireAuth, (req, res) => {
+  const cls = verifyClassOwnership(req.params.classId, req.userId!, res);
+  if (!cls) return;
   const { student_id, type, amount, description, transaction_date } = req.body;
   if (!type || !amount || !description || !transaction_date) {
     return res.status(400).json({ error: 'Missing required cash ledger parameters' });
@@ -558,7 +871,9 @@ app.post('/api/classes/:classId/cash-ledgers', (req, res) => {
   res.status(201).json(newLedger);
 });
 
-app.put('/api/cash-ledgers/:id', (req, res) => {
+app.put('/api/cash-ledgers/:id', requireAuth, (req, res) => {
+  const ledger = verifyCashLedgerOwnership(req.params.id, req.userId!, res);
+  if (!ledger) return;
   const { student_id, type, amount, description, transaction_date } = req.body;
   const index = cashLedgers.findIndex(cl => cl.id === req.params.id);
   if (index === -1) {
@@ -576,25 +891,33 @@ app.put('/api/cash-ledgers/:id', (req, res) => {
   res.json(cashLedgers[index]);
 });
 
-app.delete('/api/cash-ledgers/:id', (req, res) => {
+app.delete('/api/cash-ledgers/:id', requireAuth, (req, res) => {
+  const ledger = verifyCashLedgerOwnership(req.params.id, req.userId!, res);
+  if (!ledger) return;
   cashLedgers = cashLedgers.filter(cl => cl.id !== req.params.id);
   saveDb();
   res.json({ success: true });
 });
 
-// 7. Violations (Pelanggaran Siswa)
-app.get('/api/classes/:classId/violations', (req, res) => {
-  // Filter violations for students belonging to the class
+// 7. Violations (Pelanggaran Siswa) - Protected + Ownership
+app.get('/api/classes/:classId/violations', requireAuth, (req, res) => {
+  const cls = verifyClassOwnership(req.params.classId, req.userId!, res);
+  if (!cls) return;
   const classStudentIds = students.filter(s => s.class_id === req.params.classId).map(s => s.id);
   const classViolations = violations.filter(v => classStudentIds.includes(v.student_id));
   res.json(classViolations);
 });
 
-app.post('/api/classes/:classId/violations', (req, res) => {
+app.post('/api/classes/:classId/violations', requireAuth, (req, res) => {
+  const cls = verifyClassOwnership(req.params.classId, req.userId!, res);
+  if (!cls) return;
   const { student_id, category, description, point_deducted, violation_date } = req.body;
   if (!student_id || !category || !description || !point_deducted || !violation_date) {
     return res.status(400).json({ error: 'Missing required violation fields' });
   }
+  // Get current user for handled_by
+  const user = getCurrentUserFromRequest(req.userId);
+  const handledByName = user?.name || 'Unknown';
   const newViolation = {
     id: 'v-' + uuid(),
     student_id,
@@ -602,16 +925,13 @@ app.post('/api/classes/:classId/violations', (req, res) => {
     description,
     point_deducted: Number(point_deducted),
     violation_date,
-    handled_by: currentUser.name
+    handled_by: handledByName
   };
   violations.push(newViolation);
 
-  // Deduct student discipline points
   const studIndex = students.findIndex(s => s.id === student_id);
   if (studIndex !== -1) {
     students[studIndex].discipline_points = Math.max(0, students[studIndex].discipline_points - Number(point_deducted));
-    
-    // Send WhatsApp notification if connected
     if (whatsappStatus.connected && students[studIndex].phone_parent) {
       whatsappStatus.logs.unshift({
         id: 'wl-' + uuid(),
@@ -628,7 +948,9 @@ app.post('/api/classes/:classId/violations', (req, res) => {
   res.status(201).json(newViolation);
 });
 
-app.put('/api/violations/:id', (req, res) => {
+app.put('/api/violations/:id', requireAuth, (req, res) => {
+  const violation = verifyViolationOwnership(req.params.id, req.userId!, res);
+  if (!violation) return;
   const { category, description, point_deducted, violation_date } = req.body;
   const index = violations.findIndex(v => v.id === req.params.id);
   if (index === -1) {
@@ -659,13 +981,14 @@ app.put('/api/violations/:id', (req, res) => {
   res.json(violations[index]);
 });
 
-app.delete('/api/violations/:id', (req, res) => {
-  const violation = violations.find(v => v.id === req.params.id);
-  if (violation) {
-    // Revert points to student
-    const studIndex = students.findIndex(s => s.id === violation.student_id);
+app.delete('/api/violations/:id', requireAuth, (req, res) => {
+  const violation = verifyViolationOwnership(req.params.id, req.userId!, res);
+  if (!violation) return;
+  const violationData = violations.find(v => v.id === req.params.id);
+  if (violationData) {
+    const studIndex = students.findIndex(s => s.id === violationData.student_id);
     if (studIndex !== -1) {
-      students[studIndex].discipline_points = Math.min(100, students[studIndex].discipline_points + violation.point_deducted);
+      students[studIndex].discipline_points = Math.min(100, students[studIndex].discipline_points + violationData.point_deducted);
     }
     violations = violations.filter(v => v.id !== req.params.id);
   }
@@ -673,13 +996,14 @@ app.delete('/api/violations/:id', (req, res) => {
   res.json({ success: true });
 });
 
-// Get Subscriptions
-app.get('/api/subscriptions', (req, res) => {
-  res.json(subscriptions);
+// Get Subscriptions - Protected (only current user's subscriptions)
+app.get('/api/subscriptions', requireAuth, (req, res) => {
+  const userSubscriptions = subscriptions.filter(s => s.user_id === req.userId);
+  res.json(userSubscriptions);
 });
 
-// Create subscription checkout (Mock)
-app.post('/api/langganan/checkout', (req, res) => {
+// Create subscription checkout (Mock) - Protected
+app.post('/api/langganan/checkout', requireAuth, (req, res) => {
   const { package_name, amount } = req.body;
   const checkoutId = 'pay-' + uuid();
   res.json({
@@ -707,7 +1031,7 @@ if (process.env.NODE_ENV !== "production") {
   });
   app.use(vite.middlewares);
 } else {
-  const distPath = path.join(process.cwd(), 'dist', 'client');
+  const distPath = path.join(process.cwd(), 'dist');
   app.use(express.static(distPath));
   app.get('*', (req, res) => {
     res.sendFile(path.join(distPath, 'index.html'));

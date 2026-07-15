@@ -44,6 +44,7 @@ export default function RegisterView({ onRegister, onSwitchToLogin }: RegisterVi
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           name: formData.name,
           email: formData.email,
@@ -64,7 +65,7 @@ export default function RegisterView({ onRegister, onSwitchToLogin }: RegisterVi
         setError(data.error || 'Registrasi gagal');
       }
     } catch (err) {
-      setError('Terjadi kesalahan');
+      setError('Terjadi kesalahan koneksi');
     } finally {
       setLoading(false);
     }

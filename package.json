@@ -11,8 +11,11 @@
   },
   "dependencies": {
     "@hapi/boom": "^10.0.1",
+    "bcrypt": "^6.0.0",
+    "cookie-parser": "^1.4.7",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.3",
     "lucide-react": "^0.359.0",
     "midtrans-client": "^1.4.3",
     "motion": "^11.11.17",
@@ -24,7 +27,10 @@
     "whatsapp-web.js": "^1.34.7"
   },
   "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
+    "@types/cookie-parser": "^1.4.10",
     "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20.11.30",
     "@types/react": "^18.2.73",
     "@types/react-dom": "^18.2.22",

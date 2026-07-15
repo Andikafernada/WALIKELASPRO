@@ -22,6 +22,7 @@ export default function LoginView({ onLogin, onSwitchToRegister }: LoginViewProp
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ email, password })
       });
 
@@ -33,7 +34,7 @@ export default function LoginView({ onLogin, onSwitchToRegister }: LoginViewProp
         setError(data.error || 'Login gagal');
       }
     } catch (err) {
-      setError('Terjadi kesalahan');
+      setError('Terjadi kesalahan koneksi');
     } finally {
       setLoading(false);
     }

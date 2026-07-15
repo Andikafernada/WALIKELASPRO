@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { Presentation, CheckSquare, Wallet, AlertTriangle, MessageSquare, Zap, LayoutDashboard, LogOut, Menu, X, Home, GraduationCap, CreditCard } from 'lucide-react';
 import DashboardView from './components/DashboardView';
 import ClassesView from './components/ClassesView';
@@ -24,16 +24,17 @@ function ProtectedRoute({ children, user }: { children: React.ReactNode; user: U
 // Sidebar Component
 function Sidebar({ user, onLogout }: { user: UserType; onLogout: () => void }) {
   const location = useLocation();
+  const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navItems = [
-    { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { path: '/classes', label: 'Kelas & Siswa', icon: Presentation },
-    { path: '/attendance', label: 'Presensi Harian', icon: CheckSquare },
-    { path: '/cash', label: 'Kas & Keuangan', icon: Wallet, premium: true },
-    { path: '/violations', label: 'Pelanggaran', icon: AlertTriangle, premium: true },
-    { path: '/whatsapp', label: 'WhatsApp Gateway', icon: MessageSquare, premium: true },
-    { path: '/premium', label: 'Layanan Premium', icon: Zap, highlight: true },
+    { path: '/app/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { path: '/app/classes', label: 'Kelas & Siswa', icon: Presentation },
+    { path: '/app/attendance', label: 'Presensi Harian', icon: CheckSquare },
+    { path: '/app/cash', label: 'Kas & Keuangan', icon: Wallet, premium: true },
+    { path: '/app/violations', label: 'Pelanggaran', icon: AlertTriangle, premium: true },
+    { path: '/app/whatsapp', label: 'WhatsApp Gateway', icon: MessageSquare, premium: true },
+    { path: '/app/premium', label: 'Layanan Premium', icon: Zap, highlight: true },
   ];
 
   const isPremium = user?.premium_expires_at !== null && user?.premium_expires_at !== undefined;
@@ -150,6 +151,14 @@ function Sidebar({ user, onLogout }: { user: UserType; onLogout: () => void }) {
                 </Link>
               );
             })}
+            {/* Theme Toggle */}
+            <button
+              onClick={() => {
+                setMobileMenuOpen(false);
+              }}
+              className="w-full flex items-center gap-3 p-3 text-slate-300"
+            >
+            </button>
             <button
               onClick={onLogout}
               className="w-full flex items-center gap-3 p-3 text-rose-400"
@@ -162,11 +171,22 @@ function Sidebar({ user, onLogout }: { user: UserType; onLogout: () => void }) {
 
         {/* Main Content */}
         <main className="flex-1 p-4 md:p-8 overflow-y-auto">
-          <DashboardView user={user} />
+          <Outlet />
         </main>
       </div>
     </div>
   );
+}
+
+// Wrapper component to handle navigation for DashboardView
+function DashboardViewWithNavigate({ user }: { user: UserType }) {
+  const navigate = useNavigate();
+  const onNavigate = (tab: string, extra?: any) => {
+    // Build the path
+    let path = `/app/${tab}`;
+    navigate(path);
+  };
+  return <DashboardView user={user} onNavigate={onNavigate} />;
 }
 
 // App Content with Routes
@@ -175,15 +195,37 @@ function AppContent() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const savedUser = localStorage.getItem('walaspro_user');
-    if (savedUser) {
+    // Check if user is already logged in via server session
+    const checkAuth = async () => {
       try {
-        setUser(JSON.parse(savedUser));
-      } catch (e) {
-        localStorage.removeItem('walaspro_user');
+        const res = await fetch('/api/auth/me', {
+          credentials: 'include'
+        });
+        if (res.ok) {
+          const userData = await res.json();
+          setUser(userData);
+          // Also save to localStorage for backup
+          localStorage.setItem('walaspro_user', JSON.stringify(userData));
+        } else {
+          // Not logged in, clear localStorage
+          localStorage.removeItem('walaspro_user');
+        }
+      } catch (err) {
+        // Network error, try localStorage as fallback
+        const savedUser = localStorage.getItem('walaspro_user');
+        if (savedUser) {
+          try {
+            setUser(JSON.parse(savedUser));
+          } catch (e) {
+            localStorage.removeItem('walaspro_user');
+          }
+        }
+      } finally {
+        setLoading(false);
       }
-    }
-    setLoading(false);
+    };
+
+    checkAuth();
   }, []);
 
   const handleLogin = (userData: UserType) => {
@@ -191,9 +233,18 @@ function AppContent() {
     setUser(userData);
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('walaspro_user');
-    setUser(null);
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include'
+      });
+    } catch (err) {
+      console.error('Logout API error:', err);
+    } finally {
+      localStorage.removeItem('walaspro_user');
+      setUser(null);
+    }
   };
 
   if (loading) {
@@ -209,9 +260,9 @@ function AppContent() {
 
   return (
     <Routes>
-      {/* Public Routes */}
+      {/* public Routes */}
       <Route path="/" element={
-        user ? <Navigate to="/dashboard" replace /> : <LandingPage onLogin={() => {}} onRegister={() => {}} />
+        user ? <Navigate to="/app/dashboard" replace /> : <LandingPage onLogin={() => {}} onRegister={() => {}} />
       } />
       <Route path="/login" element={<LoginView onLogin={handleLogin} onSwitchToRegister={() => {}} />} />
       <Route path="/register" element={<RegisterView onRegister={handleLogin} onSwitchToLogin={() => {}} />} />
@@ -224,7 +275,7 @@ function AppContent() {
         </ProtectedRoute>
       }>
         <Route index element={<Navigate to="dashboard" replace />} />
-        <Route path="dashboard" element={<DashboardView user={user!} onUpgrade={() => {}} />} />
+        <Route path="dashboard" element={<DashboardViewWithNavigate user={user!} />} />
         <Route path="classes" element={<ClassesView />} />
         <Route path="attendance" element={<AttendanceView />} />
         <Route path="cash" element={<CashLedgerView />} />
@@ -241,9 +292,5 @@ function AppContent() {
 }
 
 export default function App() {
-  return (
-    <BrowserRouter>
-      <AppContent />
-    </BrowserRouter>
-  );
+  return <AppContent />;
 }
